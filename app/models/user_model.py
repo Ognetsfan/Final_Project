@@ -28,8 +28,7 @@ class User(Base):
         email_verified (bool): Flag indicating if the email has been verified.
         hashed_password (str): Hashed password for security, required.
         first_name (str): Optional first name of the user.
-        last_name (str): Optional first name of the user.
-
+        last_name (str): Optional last name of the user.
         bio (str): Optional biographical information.
         profile_picture_url (str): Optional URL to a profile picture.
         linkedin_profile_url (str): Optional LinkedIn profile URL.
@@ -42,13 +41,8 @@ class User(Base):
         is_locked (bool): Flag indicating if the account is locked.
         created_at (datetime): Timestamp when the user was created, set by the server.
         updated_at (datetime): Timestamp of the last update, set by the server.
-
-    Methods:
-        lock_account(): Locks the user account.
-        unlock_account(): Unlocks the user account.
-        verify_email(): Marks the user's email as verified.
-        has_role(role_name): Checks if the user has a specified role.
-        update_professional_status(status): Updates the professional status and logs the update time.
+        verification_token (str): Token used for email verification.
+        hashed_password (str): Securely hashed password for authentication.
     """
     __tablename__ = "users"
     __mapper_args__ = {"eager_defaults": True}
@@ -73,7 +67,6 @@ class User(Base):
     verification_token = Column(String, nullable=True)
     email_verified: Mapped[bool] = Column(Boolean, default=False, nullable=False)
     hashed_password: Mapped[str] = Column(String(255), nullable=False)
-
 
     def __repr__(self) -> str:
         """Provides a readable representation of a user object."""
