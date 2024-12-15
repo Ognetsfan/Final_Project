@@ -42,10 +42,6 @@ class UserService:
         return await cls._fetch_user(session, id=user_id)
 
     @classmethod
-    async def get_by_nickname(cls, session: AsyncSession, nickname: str) -> Optional[User]:
-        return await cls._fetch_user(session, nickname=nickname)
-
-    @classmethod
     async def get_by_email(cls, session: AsyncSession, email: str) -> Optional[User]:
         return await cls._fetch_user(session, email=email)
 
@@ -75,22 +71,20 @@ class UserService:
     @classmethod
     async def update(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
         try:
-            # validated_data = UserUpdate(**update_data).dict(exclude_unset=True)
             validated_data = UserUpdate(**update_data).dict(exclude_unset=True)
-
             if 'password' in validated_data:
                 validated_data['hashed_password'] = hash_password(validated_data.pop('password'))
             query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
             await cls._execute_query(session, query)
             updated_user = await cls.get_by_id(session, user_id)
             if updated_user:
-                session.refresh(updated_user)  # Explicitly refresh the updated user object
+                session.refresh(updated_user)
                 logger.info(f"User {user_id} updated successfully.")
                 return updated_user
             else:
                 logger.error(f"User {user_id} not found after update attempt.")
             return None
-        except Exception as e:  # Broad exception handling for debugging
+        except Exception as e:
             logger.error(f"Error during user update: {e}")
             return None
 
@@ -111,17 +105,27 @@ class UserService:
         return result.scalars().all() if result else []
 
     @classmethod
-    async def register_user(cls, session: AsyncSession, user_data: Dict[str, str], get_email_service) -> Optional[User]:
-        return await cls.create(session, user_data, get_email_service)
-    
+    async def upgrade_user_to_pro(cls, session: AsyncSession, user_id: UUID) -> Optional[User]:
+        user = await cls.get_by_id(session, user_id)
+        if user:
+            user.is_pro = True
+            session.add(user)
+            await session.commit()
+            session.refresh(user)
+            logger.info(f"User {user_id} upgraded to Pro.")
+            return user
+        logger.error(f"User {user_id} not found.")
+        return None
 
     @classmethod
     async def login_user(cls, session: AsyncSession, email: str, password: str) -> Optional[User]:
         user = await cls.get_by_email(session, email)
         if user:
-            if user.email_verified is False:
+            if not user.email_verified:
+                logger.warning("Email not verified.")
                 return None
             if user.is_locked:
+                logger.warning("Account is locked.")
                 return None
             if verify_password(password, user.hashed_password):
                 user.failed_login_attempts = 0
@@ -138,19 +142,13 @@ class UserService:
         return None
 
     @classmethod
-    async def is_account_locked(cls, session: AsyncSession, email: str) -> bool:
-        user = await cls.get_by_email(session, email)
-        return user.is_locked if user else False
-
-
-    @classmethod
     async def reset_password(cls, session: AsyncSession, user_id: UUID, new_password: str) -> bool:
         hashed_password = hash_password(new_password)
         user = await cls.get_by_id(session, user_id)
         if user:
             user.hashed_password = hashed_password
-            user.failed_login_attempts = 0  # Resetting failed login attempts
-            user.is_locked = False  # Unlocking the user account, if locked
+            user.failed_login_attempts = 0
+            user.is_locked = False
             session.add(user)
             await session.commit()
             return True
@@ -161,7 +159,7 @@ class UserService:
         user = await cls.get_by_id(session, user_id)
         if user and user.verification_token == token:
             user.email_verified = True
-            user.verification_token = None  # Clear the token once used
+            user.verification_token = None
             user.role = UserRole.AUTHENTICATED
             session.add(user)
             await session.commit()
@@ -169,25 +167,18 @@ class UserService:
         return False
 
     @classmethod
-    async def count(cls, session: AsyncSession) -> int:
-        """
-        Count the number of users in the database.
-
-        :param session: The AsyncSession instance for database access.
-        :return: The count of users.
-        """
-        query = select(func.count()).select_from(User)
-        result = await session.execute(query)
-        count = result.scalar()
-        return count
-    
-    @classmethod
     async def unlock_user_account(cls, session: AsyncSession, user_id: UUID) -> bool:
         user = await cls.get_by_id(session, user_id)
         if user and user.is_locked:
             user.is_locked = False
-            user.failed_login_attempts = 0  # Optionally reset failed login attempts
+            user.failed_login_attempts = 0
             session.add(user)
             await session.commit()
             return True
         return False
+
+    @classmethod
+    async def count(cls, session: AsyncSession) -> int:
+        query = select(func.count()).select_from(User)
+        result = await session.execute(query)
+        return result.scalar() if result else 0
