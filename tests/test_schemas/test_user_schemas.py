@@ -2,6 +2,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 from datetime import datetime
+from uuid import uuid4
 from app.schemas.user_schemas import UserBase, UserCreate, UserUpdate, UserResponse, UserListResponse, LoginRequest
 
 # Fixtures for common test data
@@ -43,9 +44,9 @@ def user_response_data(user_base_data):
         "last_name": user_base_data["last_name"],
         "role": user_base_data["role"],
         "email": user_base_data["email"],
-        # "last_login_at": datetime.now(),
-        # "created_at": datetime.now(),
-        # "updated_at": datetime.now(),
+        "last_login_at": datetime.now(),
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
         "links": []
     }
 
