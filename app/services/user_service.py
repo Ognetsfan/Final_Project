@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import secrets
 from typing import Optional, Dict, List
 from pydantic import ValidationError
-from sqlalchemy import func, null, update, select
+from sqlalchemy import func, update, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_email_service, get_settings
@@ -75,7 +75,6 @@ class UserService:
     @classmethod
     async def update(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
         try:
-            # validated_data = UserUpdate(**update_data).dict(exclude_unset=True)
             validated_data = UserUpdate(**update_data).dict(exclude_unset=True)
 
             if 'password' in validated_data:
@@ -84,14 +83,57 @@ class UserService:
             await cls._execute_query(session, query)
             updated_user = await cls.get_by_id(session, user_id)
             if updated_user:
-                session.refresh(updated_user)  # Explicitly refresh the updated user object
+                session.refresh(updated_user)
                 logger.info(f"User {user_id} updated successfully.")
                 return updated_user
             else:
                 logger.error(f"User {user_id} not found after update attempt.")
             return None
-        except Exception as e:  # Broad exception handling for debugging
+        except Exception as e:
             logger.error(f"Error during user update: {e}")
+            return None
+
+    @classmethod
+    async def update_profile(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
+        allowed_fields = {'name', 'bio', 'location'}
+        sanitized_data = {k: v for k, v in update_data.items() if k in allowed_fields}
+
+        if not sanitized_data:
+            logger.error("No valid fields provided for update.")
+            return None
+
+        return await cls.update(session, user_id, sanitized_data)
+
+    @classmethod
+    async def upgrade_to_professional(cls, session: AsyncSession, user_id: UUID, upgrader_role: str) -> Optional[User]:
+        if upgrader_role not in [UserRole.ADMIN, UserRole.MANAGER]:
+            logger.error("Permission denied. Only managers or admins can upgrade users.")
+            return None
+
+        user = await cls.get_by_id(session, user_id)
+        if not user:
+            logger.error(f"User with ID {user_id} not found.")
+            return None
+
+        if user.professional_status:
+            logger.info(f"User {user_id} is already a professional.")
+            return user
+
+        try:
+            user.professional_status = True
+            user.updated_at = datetime.now(timezone.utc)
+            session.add(user)
+            await session.commit()
+            logger.info(f"User {user_id} upgraded to professional status.")
+
+            email_service = get_email_service()
+            await email_service.send_notification_email(
+                user.email, "Congratulations! Your account has been upgraded to Professional status."
+            )
+            return user
+        except SQLAlchemyError as e:
+            logger.error(f"Error upgrading user to professional: {e}")
+            await session.rollback()
             return None
 
     @classmethod
@@ -113,7 +155,6 @@ class UserService:
     @classmethod
     async def register_user(cls, session: AsyncSession, user_data: Dict[str, str], get_email_service) -> Optional[User]:
         return await cls.create(session, user_data, get_email_service)
-    
 
     @classmethod
     async def login_user(cls, session: AsyncSession, email: str, password: str) -> Optional[User]:
@@ -142,15 +183,14 @@ class UserService:
         user = await cls.get_by_email(session, email)
         return user.is_locked if user else False
 
-
     @classmethod
     async def reset_password(cls, session: AsyncSession, user_id: UUID, new_password: str) -> bool:
         hashed_password = hash_password(new_password)
         user = await cls.get_by_id(session, user_id)
         if user:
             user.hashed_password = hashed_password
-            user.failed_login_attempts = 0  # Resetting failed login attempts
-            user.is_locked = False  # Unlocking the user account, if locked
+            user.failed_login_attempts = 0
+            user.is_locked = False
             session.add(user)
             await session.commit()
             return True
@@ -161,7 +201,7 @@ class UserService:
         user = await cls.get_by_id(session, user_id)
         if user and user.verification_token == token:
             user.email_verified = True
-            user.verification_token = None  # Clear the token once used
+            user.verification_token = None
             user.role = UserRole.AUTHENTICATED
             session.add(user)
             await session.commit()
@@ -170,23 +210,17 @@ class UserService:
 
     @classmethod
     async def count(cls, session: AsyncSession) -> int:
-        """
-        Count the number of users in the database.
-
-        :param session: The AsyncSession instance for database access.
-        :return: The count of users.
-        """
         query = select(func.count()).select_from(User)
         result = await session.execute(query)
         count = result.scalar()
         return count
-    
+
     @classmethod
     async def unlock_user_account(cls, session: AsyncSession, user_id: UUID) -> bool:
         user = await cls.get_by_id(session, user_id)
         if user and user.is_locked:
             user.is_locked = False
-            user.failed_login_attempts = 0  # Optionally reset failed login attempts
+            user.failed_login_attempts = 0
             session.add(user)
             await session.commit()
             return True
