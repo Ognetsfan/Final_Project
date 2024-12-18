@@ -32,6 +32,8 @@ def user_update_data():
         "first_name": "John",
         "last_name": "Doe",
         "bio": "I specialize in backend development with Python and Node.js.",
+        "location": "San Francisco",
+        "github_profile_url": "http://github.com/johndoe",
         "profile_picture_url": "https://example.com/profile_pictures/john_doe_updated.jpg"
     }
 
@@ -68,9 +70,14 @@ def test_user_create_valid(user_create_data):
 
 # Tests for UserUpdate
 def test_user_update_valid(user_update_data):
+    
     user_update = UserUpdate(**user_update_data)
     assert user_update.email == user_update_data["email"]
     assert user_update.first_name == user_update_data["first_name"]
+    assert user_update.last_name == user_update_data["last_name"]
+    assert user_update.bio == user_update_data["bio"]
+    assert user_update.location == user_update_data["location"]
+    assert str(user_update.github_profile_url) == user_update_data["github_profile_url"]
 
 # Tests for UserResponse
 def test_user_response_valid(user_response_data):

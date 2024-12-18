@@ -56,6 +56,32 @@ class UserUpdate(UserBase):
             raise ValueError("At least one field must be provided for update")
         return values
 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None # Email
+    name: Optional[str] = Field(None, max_length=50)
+    bio: Optional[str] = Field(None, max_length=255)
+    location: Optional[str] = Field(None, max_length=100)
+    password: Optional[str] = Field(None, min_length=8)
+    linkedin_profile_url: Optional[HttpUrl] = None 
+    github_profile_url: Optional[HttpUrl] = None 
+
+    @validator("name", "bio", "location", pre=True, always=True)
+    def strip_whitespace(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    class Config:
+        orm_mode = True
+
+    def dict(self, *args, **kwargs):
+        """
+        Override to convert HttpUrl fields to strings when exporting to dict.
+        """
+        data = super().dict(*args, **kwargs)
+        if "linkedin_profile_url" in data and data["linkedin_profile_url"]:
+            data["linkedin_profile_url"] = str(data["linkedin_profile_url"])
+        if "github_profile_url" in data and data["github_profile_url"]:
+            data["github_profile_url"] = str(data["github_profile_url"])
+        return data
 # Schema for responding with user data
 class UserResponse(UserBase):
     id: uuid.UUID = Field(..., example=uuid.uuid4())
