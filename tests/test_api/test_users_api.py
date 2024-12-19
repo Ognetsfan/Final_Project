@@ -190,3 +190,18 @@ async def test_list_users_unauthorized(async_client, user_token):
         headers={"Authorization": f"Bearer {user_token}"}
     )
     assert response.status_code == 403  # Forbidden, as expected for regular user
+
+@pytest.mark.asyncio
+async def test_update_own_profile(async_client, verified_user, user_token):
+    headers = {"Authorization": f"Bearer {user_token}"}
+    updated_data = {
+        "nickname": "new_nickname",
+        "bio": "Updated bio",
+        "linkedin_profile_url": "https://linkedin.com/in/newprofile",
+    }
+    response = await async_client.put("/users/me", json=updated_data, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["nickname"] == updated_data["nickname"]
+    assert response.json()["bio"] == updated_data["bio"]
+    assert response.json()["linkedin_profile_url"] == updated_data["linkedin_profile_url"]
+

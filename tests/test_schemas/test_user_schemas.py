@@ -72,6 +72,8 @@ def test_user_create_valid(user_create_data):
 def test_user_update_valid(user_update_data):
     
     user_update = UserUpdate(**user_update_data)
+    print("Test Data:", user_update_data)
+    print("UserUpdate Object:", user_update)
     assert user_update.email == user_update_data["email"]
     assert user_update.first_name == user_update_data["first_name"]
     assert user_update.last_name == user_update_data["last_name"]

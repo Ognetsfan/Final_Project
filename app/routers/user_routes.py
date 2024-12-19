@@ -25,17 +25,52 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_user, get_db, get_email_service, require_role
+from app.models.user_model import User
 from app.schemas.pagination_schema import EnhancedPagination
 from app.schemas.token_schema import TokenResponse
 from app.schemas.user_schemas import LoginRequest, UserBase, UserCreate, UserListResponse, UserResponse, UserUpdate
 from app.services.user_service import UserService
-from app.services.jwt_service import create_access_token
+from app.services.jwt_service import create_access_token, decode_token
 from app.utils.link_generation import create_user_links, generate_pagination_links
 from app.dependencies import get_settings
 from app.services.email_service import EmailService
+
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 settings = get_settings()
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+) -> User:
+    """
+    Extract the authenticated user from the token.
+    """
+    try:
+        # Decode the token to get the user's ID
+        payload = decode_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        
+        # Query the database for the user
+        query = select(User).where(User.id == user_id)
+        result = await db.execute(query)
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        return user
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+@router.get("/example", tags=["Example Route"])
+async def example_route(
+    token: str = Depends(oauth2_scheme)
+):
+    decoded_token = decode_token(token)
+    return {"decoded_token": decoded_token}
+
 @router.get("/users/{user_id}", response_model=UserResponse, name="get_user", tags=["User Management Requires (Admin or Manager Roles)"])
 async def get_user(user_id: UUID, request: Request, db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme), current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))):
     """
@@ -107,6 +142,20 @@ async def update_user(user_id: UUID, user_update: UserUpdate, request: Request, 
         updated_at=updated_user.updated_at,
         links=create_user_links(updated_user.id, request)
     )
+
+async def update_own_profile(
+    user_update: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update the authenticated user's profile fields.
+    """
+    update_data = user_update.model_dump(exclude_unset=True)
+    updated_user = await UserService.update(db, current_user.id, update_data)
+    if not updated_user:
+        raise HTTPException(status_code=400, detail="Failed to update profile.")
+    return UserResponse.model_validate(updated_user)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, name="delete_user", tags=["User Management Requires (Admin or Manager Roles)"])
@@ -245,3 +294,4 @@ async def verify_email(user_id: UUID, token: str, db: AsyncSession = Depends(get
     if await UserService.verify_email_with_token(db, user_id, token):
         return {"message": "Email verified successfully"}
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification token")
+
